@@ -1,0 +1,74 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: postgres-schema-init
+  namespace: default
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: schema-init
+        image: postgres:16-alpine
+        command:
+        - /bin/sh
+        - -c
+        - |
+          echo "Waiting for Postgres..."
+          until pg_isready -h postgres.postgres.svc.cluster.local -p 5432 -U postgres; do
+            sleep 2
+          done
+          echo "Postgres ready, applying schema..."
+          psql postgresql://postgres:postgres@postgres.postgres.svc.cluster.local:5432/iot_ops << 'EOF'
+          -- Telemetry Silver Layer Schema
+          CREATE TABLE IF NOT EXISTS telemetry_silver (
+              id BIGSERIAL PRIMARY KEY,
+              device_id VARCHAR(100) NOT NULL,
+              customer_id VARCHAR(100) NOT NULL,
+              device_type VARCHAR(50) NOT NULL,
+              model VARCHAR(100),
+              firmware_version VARCHAR(50),
+              timestamp TIMESTAMPTZ NOT NULL,
+              facility VARCHAR(100),
+              zone VARCHAR(100),
+              spindle_rpm DOUBLE PRECISION,
+              tool_temperature_c DOUBLE PRECISION,
+              vibration_mm_s DOUBLE PRECISION,
+              feed_rate_mm_min INTEGER,
+              cycle_count INTEGER,
+              coolant_level_pct INTEGER,
+              belt_speed_m_s DOUBLE PRECISION,
+              motor_temperature_c DOUBLE PRECISION,
+              load_weight_kg DOUBLE PRECISION,
+              runtime_hours DOUBLE PRECISION,
+              air_temperature_c DOUBLE PRECISION,
+              humidity_pct DOUBLE PRECISION,
+              compressor_pressure_psi DOUBLE PRECISION,
+              fan_speed_rpm INTEGER,
+              filter_life_pct INTEGER,
+              power_kw DOUBLE PRECISION,
+              status VARCHAR(50),
+              created_at TIMESTAMPTZ DEFAULT NOW()
+          );
+          CREATE INDEX IF NOT EXISTS idx_telemetry_device_ts ON telemetry_silver(device_id, timestamp DESC);
+          CREATE INDEX IF NOT EXISTS idx_telemetry_customer_ts ON telemetry_silver(customer_id, timestamp DESC);
+          
+          CREATE TABLE IF NOT EXISTS device_heartbeat (
+              device_id VARCHAR(100) PRIMARY KEY,
+              customer_id VARCHAR(100) NOT NULL,
+              device_type VARCHAR(50),
+              last_seen_at TIMESTAMPTZ NOT NULL,
+              last_heartbeat_at TIMESTAMPTZ,
+              last_telemetry_at TIMESTAMPTZ,
+              status VARCHAR(20) NOT NULL DEFAULT 'unknown',
+              offline_since TIMESTAMPTZ,
+              offline_reason VARCHAR(100),
+              consecutive_missed_heartbeats INTEGER DEFAULT 0,
+              firmware_version VARCHAR(50),
+              uptime_seconds BIGINT,
+              facility VARCHAR(100),
+              updated_at TIMESTAMPTZ DEFAULT NOW()
+          );
+          CREATE INDEX IF NOT EXISTS idx_heartbeat_customer_status ON device_heartbeat(customer_id, status);
+          EOF
+          echo "Schema applied successfully"

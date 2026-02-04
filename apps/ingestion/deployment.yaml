@@ -1,0 +1,104 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: consumer-postgres
+  namespace: default
+  labels:
+    app: consumer-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: consumer-postgres
+  template:
+    metadata:
+      labels:
+        app: consumer-postgres
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+    spec:
+      containers:
+      - name: consumer
+        image: iot-consumer:latest
+        imagePullPolicy: IfNotPresent
+        command: ["python", "consumer_postgres.py"]
+        env:
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: "iot-ops-kafka-kafka-bootstrap.kafka.svc.cluster.local:9092"
+        - name: CONSUMER_GROUP_ID
+          value: "telemetry-to-postgres"
+        - name: POSTGRES_HOST
+          value: "postgres.postgres.svc.cluster.local"
+        - name: POSTGRES_PORT
+          value: "5432"
+        - name: POSTGRES_DB
+          value: "iot_ops"
+        - name: POSTGRES_USER
+          value: "postgres"
+        - name: POSTGRES_PASSWORD
+          value: "postgres"
+        - name: METRICS_PORT
+          value: "8000"
+        ports:
+        - name: metrics
+          containerPort: 8000
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: consumer-bronze
+  namespace: default
+  labels:
+    app: consumer-bronze
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: consumer-bronze
+  template:
+    metadata:
+      labels:
+        app: consumer-bronze
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8001"
+    spec:
+      containers:
+      - name: consumer
+        image: iot-consumer:latest
+        imagePullPolicy: IfNotPresent
+        command: ["python", "consumer_bronze.py"]
+        env:
+        - name: KAFKA_BOOTSTRAP_SERVERS
+          value: "iot-ops-kafka-kafka-bootstrap.kafka.svc.cluster.local:9092"
+        - name: CONSUMER_GROUP_ID
+          value: "telemetry-to-bronze"
+        - name: MINIO_ENDPOINT
+          value: "minio.minio.svc.cluster.local:9000"
+        - name: MINIO_ACCESS_KEY
+          value: "minioadmin"
+        - name: MINIO_SECRET_KEY
+          value: "minioadmin"
+        - name: MINIO_SECURE
+          value: "false"
+        - name: METRICS_PORT
+          value: "8001"
+        ports:
+        - name: metrics
+          containerPort: 8001
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
