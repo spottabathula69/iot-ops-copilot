@@ -1,0 +1,55 @@
+# LLM Configuration
+
+# Provider selection: openai | ollama | bedrock
+llm:
+  provider: "ollama"
+  
+  # OpenAI Configuration (for development/production)
+  openai:
+    api_key: ${OPENAI_API_KEY}
+    model: "gpt-4o-mini"
+    base_url: "https://api.openai.com/v1"
+    temperature: 0.7
+    max_tokens: 1000
+    timeout: 30
+  
+  # Ollama Configuration (for local GPU inference)
+  ollama:
+    base_url: "http://192.168.1.100:11434"  # Windows GPU machine IP
+    model: "llama3.1:8b"
+    temperature: 0.7
+    max_tokens: 1000
+    timeout: 30
+  
+  # AWS Bedrock Configuration (for production/enterprise)
+  bedrock:
+    region: "us-west-2"
+    model_id: "anthropic.claude-3-sonnet-20240229-v1:0"
+    temperature: 0.7
+    max_tokens: 1000
+  
+  # Common settings
+  streaming: true
+  retry_attempts: 3
+  retry_delay: 1.0
+
+# RAG Configuration (Phase 4)
+rag:
+  retrieval:
+    top_k: 50
+    rerank_top_k: 10
+    min_score: 0.7
+  
+  vector_store:
+    provider: "pgvector"  # pgvector | qdrant | milvus
+    connection: ${POSTGRES_URL}
+  
+  embeddings:
+    model: "sentence-transformers/all-MiniLM-L6-v2"
+    dimensions: 384
+
+# Application Settings
+app:
+  name: "iot-ops-copilot"
+  version: "0.1.0"
+  environment: "development"  # development | staging | production
