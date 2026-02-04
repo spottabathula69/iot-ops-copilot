@@ -13,8 +13,14 @@
 Industrial equipment devices may experience:
 - **Network outages**: Temporary connectivity loss (seconds to hours)
 - **Power loss**: Device shutdown, restart with buffered data
-- **Maintenance**: Intentional offline periods (firmware updates)
+- **Planned downtime**: Outside operating hours (nights, weekends, holidays)
+- **Scheduled maintenance**: Intentional offline periods (firmware updates, calibration)
 - **Device failures**: Permanent offline (requires replacement)
+
+**Key Insight**: Many customers operate equipment on **shifts** (e.g., Mon-Fri 8AM-5PM, or 24/5), not 24/7. Without operating hours:
+- ❌ Uptime % is artificially low (includes nights/weekends)
+- ❌ Alert fatigue (device "offline" every night when factory closes)
+- ❌ SLA violations incorrectly calculated
 
 Without proper offline handling:
 - ❌ Can't distinguish "offline" from "idle" (both produce no data)
@@ -25,8 +31,9 @@ Without proper offline handling:
 
 ## Decision Drivers
 
-- **Uptime Accuracy**: Need true uptime % for SLA tracking
-- **Alerting**: Detect offline devices within 5 minutes (prevent extended downtime)
+- **Uptime Accuracy**: Need true uptime % **during operating hours only** for SLA tracking
+- **Alerting**: Detect offline devices within 5 minutes during operating hours (no alerts during planned downtime)
+- **Planned vs Unplanned Downtime**: Distinguish scheduled maintenance from unexpected failures
 - **Data Integrity**: Handle late-arriving data without corrupting aggregates
 - **Customer Trust**: Accurate dashboard metrics (wrong uptime = lost credibility)
 - **Compliance**: Audit trail of offline events for regulatory requirements
@@ -36,15 +43,220 @@ Without proper offline handling:
 **Chosen strategy**: **Heartbeat + Last-Seen Tracking + Reprocessing Pipeline**
 
 Implement comprehensive offline detection and handling:
-1. **Heartbeat messages** (positive signal of device health)
-2. **Last-seen tracking** (detect offline within 5 minutes)
-3. **Late-data reprocessing** (backfill aggregates when buffered data arrives)
-4. **Gap-based runtime calculation** (accurate uptime metrics)
-5. **Offline/online events** (audit trail and alerting)
+1. **Operating hours/schedules** (define when devices are expected to run)
+2. **Heartbeat messages** (positive signal of device health)
+3. **Last-seen tracking** (detect offline within 5 minutes during operating hours)
+4. **Late-data reprocessing** (backfill aggregates when buffered data arrives)
+5. **Gap-based runtime calculation** (accurate uptime metrics during operating hours)
+6. **Offline/online events** (audit trail and alerting, suppressed during planned downtime)
 
 ---
 
-## 1. Heartbeat Messages
+## 1. Operating Hours and Schedules
+
+### Purpose
+- Define **when devices are expected to run** (operating hours)
+- Distinguish **planned downtime** (outside operating hours) from **unplanned downtime** (failures)
+- Calculate accurate uptime % (only during operating hours)
+- Suppress alerts during planned downtime (no alert fatigue)
+
+### Configuration Levels
+
+**Per-Device Schedule** (most granular):
+```json
+// Device metadata
+{
+  "device_id": "cnc-001",
+  "customer_id": "acme",
+  "operating_schedule": {
+    "timezone": "America/Los_Angeles",
+    "schedule_type": "weekly",  // weekly | 24x7 | custom
+    "weekly_schedule": {
+      "monday": {"start": "08:00", "end": "17:00"},
+      "tuesday": {"start": "08:00", "end": "17:00"},
+      "wednesday": {"start": "08:00", "end": "17:00"},
+      "thursday": {"start": "08:00", "end": "17:00"},
+      "friday": {"start": "08:00", "end": "17:00"},
+      "saturday": null,  // not operating
+      "sunday": null     // not operating
+    },
+    "holidays": ["2026-12-25", "2026-01-01"]  // override: not operating
+  }
+}
+```
+
+**Per-Facility Schedule** (common):
+```json
+// Facility-level schedule (all devices in facility inherit)
+{
+  "facility_id": "fab-west",
+  "customer_id": "acme",
+  "operating_schedule": {
+    "timezone": "America/Los_Angeles",
+    "schedule_type": "24x5",  // 24 hours/day, 5 days/week
+    "weekly_schedule": {
+      "monday": {"start": "00:00", "end": "23:59"},
+      "tuesday": {"start": "00:00", "end": "23:59"},
+      "wednesday": {"start": "00:00", "end": "23:59"},
+      "thursday": {"start": "00:00", "end": "23:59"},
+      "friday": {"start": "00:00", "end": "23:59"},
+      "saturday": null,
+      "sunday": null
+    }
+  }
+}
+```
+
+**Default (24x7)**:
+```json
+// No schedule defined = assume 24x7 operation
+{
+  "schedule_type": "24x7"
+}
+```
+
+### Database Schema
+
+```sql
+CREATE TABLE operating_schedules (
+    id SERIAL PRIMARY KEY,
+    entity_type VARCHAR(20) NOT NULL,  -- device | facility | customer
+    entity_id VARCHAR(100) NOT NULL,
+    customer_id VARCHAR(100) NOT NULL,
+    
+    -- Schedule definition
+    timezone VARCHAR(50) NOT NULL DEFAULT 'UTC',
+    schedule_type VARCHAR(20) NOT NULL,  -- 24x7 | weekly | custom
+    
+    -- Weekly schedule (JSON)
+    weekly_schedule JSONB,  
+    -- Example: {"monday": {"start": "08:00", "end": "17:00"}, ...}
+    
+    -- Holiday overrides
+    holidays JSONB,  -- ["2026-12-25", "2026-01-01"]
+    
+    -- Maintenance windows (override operating hours)
+    maintenance_windows JSONB,
+    -- Example: [{"start": "2026-02-10T14:00:00Z", "end": "2026-02-10T16:00:00Z", "reason": "firmware_update"}]
+    
+    effective_from TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    effective_until TIMESTAMPTZ,
+    
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    
+    UNIQUE(entity_type, entity_id, effective_from)
+);
+
+CREATE INDEX idx_schedules_entity ON operating_schedules(entity_type, entity_id);
+CREATE INDEX idx_schedules_customer ON operating_schedules(customer_id);
+```
+
+### Helper Function: Is Device Expected to Run?
+
+```python
+from datetime import datetime
+import pytz
+
+def is_device_expected_to_run(device_id, timestamp):
+    """
+    Check if device is expected to be running at given timestamp.
+    
+    Returns:
+        (bool, str): (is_expected, reason)
+        - (True, "in_operating_hours")
+        - (False, "outside_operating_hours")
+        - (False, "holiday")
+        - (False, "scheduled_maintenance")
+    """
+    # Get schedule (device-level, fallback to facility-level, fallback to 24x7)
+    schedule = get_operating_schedule(device_id)
+    
+    if schedule['schedule_type'] == '24x7':
+        return (True, "24x7_operation")
+    
+    # Convert timestamp to facility timezone
+    tz = pytz.timezone(schedule['timezone'])
+    local_time = timestamp.astimezone(tz)
+    
+    # Check holidays
+    if local_time.date().isoformat() in schedule.get('holidays', []):
+        return (False, "holiday")
+    
+    # Check maintenance windows
+    for window in schedule.get('maintenance_windows', []):
+        if window['start'] <= timestamp <= window['end']:
+            return (False, f"scheduled_maintenance: {window['reason']}")
+    
+    # Check weekly schedule
+    day_name = local_time.strftime('%A').lower()
+    day_schedule = schedule['weekly_schedule'].get(day_name)
+    
+    if day_schedule is None:
+        return (False, "not_scheduled_day")
+    
+    # Parse start/end times
+    start_time = datetime.strptime(day_schedule['start'], '%H:%M').time()
+    end_time = datetime.strptime(day_schedule['end'], '%H:%M').time()
+    current_time = local_time.time()
+    
+    if start_time <= current_time <= end_time:
+        return (True, "in_operating_hours")
+    else:
+        return (False, "outside_operating_hours")
+```
+
+### Usage in Offline Detection
+
+```python
+# Enhanced offline detection (Airflow DAG)
+def detect_offline_devices():
+    now = datetime.utcnow()
+    
+    # Get devices with missed heartbeats
+    offline_candidates = query("""
+        SELECT device_id, customer_id, last_seen_at
+        FROM device_heartbeat
+        WHERE last_seen_at < NOW() - INTERVAL '5 minutes'
+          AND status = 'online'
+    """)
+    
+    for device in offline_candidates:
+        # Check if device is expected to run right now
+        is_expected, reason = is_device_expected_to_run(device['device_id'], now)
+        
+        if is_expected:
+            # UNPLANNED downtime - mark offline and alert
+            update_device_status(
+                device['device_id'], 
+                status='offline_unplanned',
+                reason=reason
+            )
+            generate_offline_alert(device)  # Send alert!
+        else:
+            # PLANNED downtime - mark offline but DO NOT alert
+            update_device_status(
+                device['device_id'],
+                status='offline_planned',
+                reason=reason
+            )
+            # No alert sent (expected behavior)
+```
+
+### Updated `device_heartbeat` Table
+
+```sql
+ALTER TABLE device_heartbeat
+ADD COLUMN status VARCHAR(20) NOT NULL,  
+-- Values: online | offline_planned | offline_unplanned | unknown
+
+ADD COLUMN offline_reason VARCHAR(100);
+-- Values: outside_operating_hours | holiday | scheduled_maintenance | network_issue | unknown
+```
+
+---
+
+## 2. Heartbeat Messages
 
 ### Purpose
 - Provide **positive signal** that device is alive (vs absence of data = unknown state)
@@ -459,7 +671,16 @@ This breaks when device is offline:
 ### Solution: Window Functions for Gap Detection
 
 ```sql
-WITH message_gaps AS (
+-- Enhanced aggregation with operating hours awareness
+WITH operating_hours_today AS (
+    -- Calculate expected operating hours for this device today
+    SELECT 
+        device_id,
+        calculate_operating_hours(device_id, CURRENT_DATE) as expected_hours,
+        get_operating_periods(device_id, CURRENT_DATE) as operating_periods
+    FROM devices
+),
+message_gaps AS (
     SELECT 
         device_id,
         customer_id,
@@ -515,17 +736,27 @@ CREATE TABLE device_daily_summary (
     customer_id VARCHAR(100),
     date DATE,
     
-    -- Runtime metrics (gap-based calculation)
-    runtime_hours DOUBLE PRECISION,  -- Only periods with gaps < 5 min
-    offline_hours DOUBLE PRECISION,  -- Periods with gaps > 5 min
-    idle_hours DOUBLE PRECISION,     -- 24 - runtime - offline
+    -- Operating hours (from schedule)
+    expected_operating_hours DOUBLE PRECISION,  -- How many hours device should run today
     
-    -- Uptime (runtime / (runtime + offline) × 100)
+    -- Runtime metrics (gap-based calculation, ONLY during operating hours)
+    runtime_hours DOUBLE PRECISION,              -- Actual runtime during operating hours
+    offline_unplanned_hours DOUBLE PRECISION,    -- Unplanned downtime during operating hours
+    offline_planned_hours DOUBLE PRECISION,      -- Planned downtime (outside operating hours)
+    idle_hours DOUBLE PRECISION,                 -- Operating hours - runtime - offline_unplanned
+    
+    -- Uptime % (ONLY during expected operating hours)
+    -- Formula: runtime_hours / expected_operating_hours × 100
     uptime_pct DOUBLE PRECISION,
     
-    -- Offline tracking
-    offline_events INT,              -- Count of offline periods
-    longest_offline_minutes INT,     -- Max offline duration
+    -- SLA uptime (excludes planned maintenance)
+    -- Formula: runtime_hours / (expected_operating_hours - planned_maintenance_hours) × 100
+    sla_uptime_pct DOUBLE PRECISION,
+    
+    -- Offline tracking (ONLY during operating hours)
+    offline_events_unplanned INT,            -- Count of unplanned offline periods
+    offline_events_planned INT,              -- Count of planned maintenance windows
+    longest_offline_minutes INT,             -- Max unplanned offline duration
     total_offline_duration_minutes INT,
     
     ...
