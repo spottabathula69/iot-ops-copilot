@@ -40,7 +40,8 @@ Deploy LLM inference as a **separate service** outside the Kubernetes cluster, a
 
 1. **OpenAI API** (development, fast iteration)
 2. **Ollama (local Llama 3.1)** (demos, cost-free)
-3. **AWS Bedrock** (future production)
+3. **AWS Bedrock** (AWS production)
+4. **Vertex AI** (GCP production, Gemini models)
 
 ### Architecture
 
@@ -54,13 +55,13 @@ Deploy LLM inference as a **separate service** outside the Kubernetes cluster, a
 │  └───────────────┬───────────────────┘  │
 └──────────────────┼──────────────────────┘
                    │ HTTP
-        ┌──────────┴──────────┬────────────────┐
-        │                     │                │
-        ▼                     ▼                ▼
-┌───────────────┐   ┌──────────────┐   ┌────────────┐
-│   OpenAI API  │   │   Ollama     │   │  Bedrock   │
-│   (Cloud)     │   │ (Windows GPU)│   │  (Cloud)   │
-└───────────────┘   └──────────────┘   └────────────┘
+        ┌──────────┴──────────┬──────────────┬──────────────┐
+        │                     │              │              │
+        ▼                     ▼              ▼              ▼
+┌───────────────┐   ┌──────────────┐   ┌──────────┐   ┌──────────┐
+│   OpenAI API  │   │   Ollama     │   │ Bedrock  │   │ Vertex AI│
+│   (Cloud)     │   │ (Windows GPU)│   │  (AWS)   │   │  (GCP)   │
+└───────────────┘   └──────────────┘   └──────────┘   └──────────┘
 ```
 
 ### Configuration-Based Switching
@@ -68,7 +69,7 @@ Deploy LLM inference as a **separate service** outside the Kubernetes cluster, a
 ```yaml
 # config/llm.yaml
 llm:
-  provider: "ollama"  # openai | ollama | bedrock
+  provider: "ollama"  # openai | ollama | bedrock | vertexai
   
   openai:
     api_key: ${OPENAI_API_KEY}
@@ -82,6 +83,11 @@ llm:
   bedrock:
     region: "us-west-2"
     model_id: "anthropic.claude-3-sonnet"
+  
+  vertexai:
+    project_id: ${GCP_PROJECT_ID}
+    location: "us-central1"
+    model: "gemini-1.5-pro"  # or gemini-1.5-flash
 ```
 
 **Simple switch**: Change `llm.provider` in config or set `LLM_PROVIDER` environment variable.
@@ -180,9 +186,10 @@ Success criteria:
 - Update config to support provider switching
 - Benchmark: OpenAI vs Ollama (latency, quality, cost)
 
-### Phase 7: Production Simulation (EKS)
-- Option A: **AWS Bedrock** (managed)
-- Option B: **vLLM on g4dn instances** (self-managed)
+### Phase 7: Production Simulation (Cloud)
+- Option A: **AWS Bedrock** (AWS managed)
+- Option B: **Vertex AI** (GCP managed, Gemini models)
+- Option C: **vLLM on GPU instances** (self-managed)
 
 ## Technical Implementation
 
@@ -216,6 +223,14 @@ class OllamaProvider(LLMProvider):
         )
         self.model = model
 
+# app/services/llm/vertexai_provider.py
+class VertexAIProvider(LLMProvider):
+    def __init__(self, project_id: str, location: str, model: str):
+        from vertexai.generative_models import GenerativeModel
+        import vertexai
+        vertexai.init(project=project_id, location=location)
+        self.model = GenerativeModel(model)
+
 # app/services/llm/factory.py
 def create_llm_provider(config: dict) -> LLMProvider:
     provider = config.get("provider", "openai")
@@ -226,6 +241,8 @@ def create_llm_provider(config: dict) -> LLMProvider:
         return OllamaProvider(...)
     elif provider == "bedrock":
         return BedrockProvider(...)
+    elif provider == "vertexai":
+        return VertexAIProvider(...)
 ```
 
 ### Environment-Based Configuration
@@ -241,10 +258,16 @@ LLM_PROVIDER=ollama
 OLLAMA_BASE_URL=http://192.168.1.100:11434
 OLLAMA_MODEL=llama3.1:8b
 
-# .env.prod (production with Bedrock)
+# .env.prod-aws (production on AWS)
 LLM_PROVIDER=bedrock
 AWS_REGION=us-west-2
 BEDROCK_MODEL_ID=anthropic.claude-3-sonnet
+
+# .env.prod-gcp (production on GCP)
+LLM_PROVIDER=vertexai
+GCP_PROJECT_ID=your-project-id
+VERTEXAI_LOCATION=us-central1
+VERTEXAI_MODEL=gemini-1.5-pro
 ```
 
 ## Benchmarking Plan
@@ -255,7 +278,9 @@ Document performance comparison in `docs/BENCHMARKS.md`:
 |----------|-------|-------------|-------------|----------------|---------------|
 | OpenAI | gpt-4o-mini | 800ms | 1.5s | $0.15 | 9/10 |
 | Ollama (Local) | llama3.1:8b | 600ms | 1.2s | $0 | 7.5/10 |
-| Bedrock | claude-3-sonnet | 1.2s | 2.5s | $3.00 | 9.5/10 |
+| Bedrock (AWS) | claude-3-sonnet | 1.2s | 2.5s | $3.00 | 9.5/10 |
+| Vertex AI (GCP) | gemini-1.5-pro | 900ms | 1.8s | $1.25 | 9/10 |
+| Vertex AI (GCP) | gemini-1.5-flash | 400ms | 800ms | $0.075 | 8/10 |
 
 ## More Information
 

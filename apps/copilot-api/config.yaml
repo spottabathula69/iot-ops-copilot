@@ -1,6 +1,6 @@
 # LLM Configuration
 
-# Provider selection: openai | ollama | bedrock
+# Provider selection: openai | ollama | bedrock | vertexai
 llm:
   provider: "ollama"
   
@@ -21,10 +21,18 @@ llm:
     max_tokens: 1000
     timeout: 30
   
-  # AWS Bedrock Configuration (for production/enterprise)
+  # AWS Bedrock Configuration (for AWS production)
   bedrock:
     region: "us-west-2"
     model_id: "anthropic.claude-3-sonnet-20240229-v1:0"
+    temperature: 0.7
+    max_tokens: 1000
+  
+  # GCP Vertex AI Configuration (for GCP production)
+  vertexai:
+    project_id: ${GCP_PROJECT_ID}
+    location: "us-central1"
+    model: "gemini-1.5-pro"  # or gemini-1.5-flash for faster/cheaper
     temperature: 0.7
     max_tokens: 1000
   

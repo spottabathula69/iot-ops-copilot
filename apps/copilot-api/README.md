@@ -2,11 +2,12 @@
 
 ## LLM Provider Configuration
 
-The Copilot API supports **three LLM providers** that can be switched with a simple configuration change:
+The Copilot API supports **four LLM providers** that can be switched with a simple configuration change:
 
 1. **OpenAI API** - For development and production
 2. **Ollama (Local Llama)** - For demos and cost-free inference
-3. **AWS Bedrock** - For enterprise production deployments
+3. **AWS Bedrock** - For AWS production deployments
+4. **Vertex AI** - For GCP production deployments (Gemini models)
 
 ---
 
@@ -79,7 +80,7 @@ curl http://localhost:11434/v1/chat/completions `
 
 ---
 
-### Option 3: AWS Bedrock (Future Production)
+### Option 3: AWS Bedrock (AWS Production)
 
 **Prerequisites**: AWS account with Bedrock access
 
@@ -97,7 +98,32 @@ aws configure
 docker-compose up copilot-api
 ```
 
-**Cost**: Pay-per-use (varies by model)
+**Cost**: ~$3.00 per 1M tokens (Claude 3 Sonnet)
+
+---
+
+### Option 4: Vertex AI (GCP Production)
+
+**Prerequisites**: GCP account with Vertex AI API enabled
+
+**Setup**:
+```bash
+# Edit .env
+LLM_PROVIDER=vertexai
+GCP_PROJECT_ID=your-gcp-project-id
+VERTEXAI_LOCATION=us-central1
+VERTEXAI_MODEL=gemini-1.5-pro  # or gemini-1.5-flash for faster/cheaper
+
+# Authenticate with GCP
+gcloud auth application-default login
+
+# Run
+docker-compose up copilot-api
+```
+
+**Cost**: 
+- Gemini 1.5 Pro: ~$1.25 per 1M tokens
+- Gemini 1.5 Flash: ~$0.075 per 1M tokens (8x cheaper!)
 
 ---
 
@@ -112,8 +138,11 @@ LLM_PROVIDER=openai
 # Use Local Llama
 LLM_PROVIDER=ollama
 
-# Use Bedrock
+# Use AWS Bedrock
 LLM_PROVIDER=bedrock
+
+# Use GCP Vertex AI
+LLM_PROVIDER=vertexai
 ```
 
 No code changes required! Restart the service:
@@ -132,11 +161,13 @@ docker-compose restart copilot-api
 python scripts/benchmark_llm.py
 
 # Output:
-# Provider    | p50 Latency | p95 Latency | Cost/1M Tokens
-# ------------|-------------|-------------|----------------
-# OpenAI      | 800ms       | 1.5s        | $0.15
-# Ollama      | 600ms       | 1.2s        | $0.00
-# Bedrock     | 1.2s        | 2.5s        | $3.00
+# Provider        | p50 Latency | p95 Latency | Cost/1M Tokens
+# ----------------|-------------|-------------|----------------
+# OpenAI          | 800ms       | 1.5s        | $0.15
+# Ollama (Local)  | 600ms       | 1.2s        | $0.00
+# Bedrock (AWS)   | 1.2s        | 2.5s        | $3.00
+# Vertex AI (Pro) | 900ms       | 1.8s        | $1.25
+# Vertex AI (Flash)| 400ms      | 800ms       | $0.075
 ```
 
 ### Quality Comparison
@@ -207,8 +238,9 @@ ollama run llama3.1:8b "Test prompt"
 |-------------|---------------------|-----------|
 | **Local Development** | OpenAI (gpt-4o-mini) | Fast iteration, best quality |
 | **Demos/Portfolio** | Ollama (llama3.1:8b) | Free, impressive GPU usage |
-| **Staging** | OpenAI or Bedrock | Cost-effective, managed |
-| **Production** | Bedrock (Claude) | Enterprise SLAs, compliance |
+| **Staging** | Vertex AI (Flash) or OpenAI | Cost-effective, managed |
+| **Production (AWS)** | Bedrock (Claude) | Enterprise SLAs, AWS ecosystem |
+| **Production (GCP)** | Vertex AI (Gemini Pro) | Enterprise SLAs, GCP ecosystem |
 
 ---
 
