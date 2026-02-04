@@ -1,0 +1,33 @@
+# Placeholder for Kafka Strimzi operator deployment
+# This will be implemented in Phase 1
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kafka
+  namespace: argocd
+spec:
+  project: default
+  
+  source:
+    repoURL: https://github.com/spottabathula69/iot-ops-copilot.git
+    targetRevision: HEAD
+    path: charts/kafka  # Will contain Kafka Strimzi operator Helm chart
+  
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kafka
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+  
+  # Disabled until Phase 1
+  ignoreDifferences:
+    - group: "*"
+      kind: "*"
+      jsonPointers:
+        - /status
