@@ -174,7 +174,9 @@ class PostgresConsumer:
                     self.flush_batch()
                 
                 # Update consumer lag metric
-                lag = self.consumer.highwater(message.partition) - message.offset
+                from kafka import TopicPartition
+                tp = TopicPartition('telemetry', message.partition)
+                lag = self.consumer.highwater(tp) - message.offset
                 consumer_lag.labels(topic='telemetry', partition=message.partition).set(lag)
                 
         except KeyboardInterrupt:

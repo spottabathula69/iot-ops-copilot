@@ -1,17 +1,69 @@
+# Kafka Cluster (KRaft Mode - No ZooKeeper)
+# Strimzi 0.46+ only supports KRaft mode
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  name: controller
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: iot-ops-kafka
+spec:
+  replicas: 3
+  roles:
+    - controller
+  storage:
+    type: ephemeral
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  name: broker
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: iot-ops-kafka
+spec:
+  replicas: 3
+  roles:
+    - broker
+  storage:
+    type: ephemeral
+    # For production:
+    # type: persistent-claim
+    # size: 100Gi
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+---
 apiVersion: kafka.strimzi.io/v1beta2
 kind: Kafka
 metadata:
   name: iot-ops-kafka
   namespace: kafka
-  labels:
-    app.kubernetes.io/name: kafka
-    app.kubernetes.io/part-of: iot-ops-copilot
+  annotations:
+    strim.io/node-pools: enabled
+    strimzi.io/kraft: enabled
 spec:
   kafka:
-    version: 3.6.0
-    replicas: 3
+    version: 4.1.1  # Latest supported by Strimzi 0.46+
     
-    # Listeners (internal only for local dev)
+    # Metadata config (KRaft replaces ZooKeeper)
+    metadataVersion: 3.8-IV0
+    
+    # Listeners
     listeners:
       - name: plain
         port: 9092
@@ -22,17 +74,17 @@ spec:
         type: internal
         tls: true
     
-    # Kafka broker configuration
+    # Broker configuration
     config:
       # Topic defaults
       num.partitions: 100
       default.replication.factor: 3
       min.insync.replicas: 2
       
-      # Disable auto topic creation (explicit via CRDs)
+      # Disable auto topic creation
       auto.create.topics.enable: false
       
-      # Performance tuning
+      # Performance
       compression.type: gzip
       log.retention.hours: 168  # 7 days
       log.segment.bytes: 1073741824  # 1GB
@@ -41,34 +93,12 @@ spec:
       replica.lag.time.max.ms: 30000
       replica.fetch.max.bytes: 1048576
       
-      # Consumer group settings
+      # Consumer groups
       offsets.retention.minutes: 10080  # 7 days
       
-      # Transaction settings (for exactly-once semantics)
+      # Transaction settings
       transaction.state.log.replication.factor: 3
       transaction.state.log.min.isr: 2
-    
-    # Storage (ephemeral for local dev, use persistent-claim for prod)
-    storage:
-      type: ephemeral
-      # For production, use:
-      # type: persistent-claim
-      # size: 100Gi
-      # deleteClaim: false
-    
-    # Resource requests/limits
-    resources:
-      requests:
-        cpu: 500m
-        memory: 1Gi
-      limits:
-        cpu: 2000m
-        memory: 2Gi
-    
-    # JVM options
-    jvmOptions:
-      -Xms: 1024m
-      -Xmx: 1024m
     
     # Metrics (Prometheus JMX Exporter)
     metricsConfig:
@@ -77,35 +107,6 @@ spec:
         configMapKeyRef:
           name: kafka-metrics
           key: kafka-metrics-config.yml
-  
-  # ZooKeeper ensemble
-  zookeeper:
-    replicas: 3
-    
-    storage:
-      type: ephemeral
-      # For production:
-      # type: persistent-claim
-      # size: 10Gi
-    
-    resources:
-      requests:
-        cpu: 200m
-        memory: 512Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
-    
-    jvmOptions:
-      -Xms: 512m
-      -Xmx: 512m
-    
-    metricsConfig:
-      type: jmxPrometheusExporter
-      valueFrom:
-        configMapKeyRef:
-          name: kafka-metrics
-          key: zookeeper-metrics-config.yml
   
   # Entity Operator (Topic and User operators)
   entityOperator:
@@ -169,10 +170,3 @@ data:
       - pattern: kafka.log<type=LogFlushStats, name=LogFlushRateAndTimeMs><>Count
         name: kafka_log_flushes_total
         type: COUNTER
-      
-  zookeeper-metrics-config.yml: |
-    lowercaseOutputName: true
-    rules:
-      - pattern: "org.apache.ZooKeeperService<name0=(.+)><>(\\w+)"
-        name: "zookeeper_$2"
-        type: GAUGE
