@@ -1,0 +1,91 @@
+---
+# Topic: telemetry
+# High-volume device telemetry (1 message/device/minute)
+# Partitions: 100 (supports 100-1000 customers)
+# Retention: 7 days (sufficient for Bronze → Silver pipeline)
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: telemetry
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: iot-ops-kafka
+    app.kubernetes.io/part-of: iot-ops-copilot
+spec:
+  partitions: 100
+  replicas: 3
+  config:
+    retention.ms: 604800000  # 7 days (7 * 24 * 60 * 60 * 1000)
+    compression.type: gzip
+    min.insync.replicas: 2
+    segment.ms: 3600000  # 1 hour segments
+    cleanup.policy: delete
+
+---
+# Topic: events
+# Medium-volume state changes, errors, threshold breaches
+# Partitions: 50 (half of telemetry, lower volume)
+# Retention: 30 days (audit trail)
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: events
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: iot-ops-kafka
+    app.kubernetes.io/part-of: iot-ops-copilot
+spec:
+  partitions: 50
+  replicas: 3
+  config:
+    retention.ms: 2592000000  # 30 days
+    compression.type: gzip
+    min.insync.replicas: 2
+    segment.ms: 86400000  # 24 hours
+    cleanup.policy: delete
+
+---
+# Topic: alerts
+# Low-volume actionable alerts requiring human intervention
+# Partitions: 20 (lowest volume, highest retention)
+# Retention: 90 days (compliance, audit)
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: alerts
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: iot-ops-kafka
+    app.kubernetes.io/part-of: iot-ops-copilot
+spec:
+  partitions: 20
+  replicas: 3
+  config:
+    retention.ms: 7776000000  # 90 days
+    compression.type: gzip
+    min.insync.replicas: 2
+    segment.ms: 86400000  # 24 hours
+    cleanup.policy: delete
+
+---
+# Topic: heartbeat
+# Device heartbeat messages (every 60 seconds)
+# Partitions: 20 (low volume, frequent but small messages)
+# Retention: 30 days (for offline detection analysis)
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: heartbeat
+  namespace: kafka
+  labels:
+    strimzi.io/cluster: iot-ops-kafka
+    app.kubernetes.io/part-of: iot-ops-copilot
+spec:
+  partitions: 20
+  replicas: 3
+  config:
+    retention.ms: 2592000000  # 30 days
+    compression.type: gzip
+    min.insync.replicas: 2
+    segment.ms: 3600000  # 1 hour
+    cleanup.policy: delete

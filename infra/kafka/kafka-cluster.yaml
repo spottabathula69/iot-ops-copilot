@@ -1,0 +1,178 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: iot-ops-kafka
+  namespace: kafka
+  labels:
+    app.kubernetes.io/name: kafka
+    app.kubernetes.io/part-of: iot-ops-copilot
+spec:
+  kafka:
+    version: 3.6.0
+    replicas: 3
+    
+    # Listeners (internal only for local dev)
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+      - name: tls
+        port: 9093
+        type: internal
+        tls: true
+    
+    # Kafka broker configuration
+    config:
+      # Topic defaults
+      num.partitions: 100
+      default.replication.factor: 3
+      min.insync.replicas: 2
+      
+      # Disable auto topic creation (explicit via CRDs)
+      auto.create.topics.enable: false
+      
+      # Performance tuning
+      compression.type: gzip
+      log.retention.hours: 168  # 7 days
+      log.segment.bytes: 1073741824  # 1GB
+      
+      # Replication
+      replica.lag.time.max.ms: 30000
+      replica.fetch.max.bytes: 1048576
+      
+      # Consumer group settings
+      offsets.retention.minutes: 10080  # 7 days
+      
+      # Transaction settings (for exactly-once semantics)
+      transaction.state.log.replication.factor: 3
+      transaction.state.log.min.isr: 2
+    
+    # Storage (ephemeral for local dev, use persistent-claim for prod)
+    storage:
+      type: ephemeral
+      # For production, use:
+      # type: persistent-claim
+      # size: 100Gi
+      # deleteClaim: false
+    
+    # Resource requests/limits
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 2000m
+        memory: 2Gi
+    
+    # JVM options
+    jvmOptions:
+      -Xms: 1024m
+      -Xmx: 1024m
+    
+    # Metrics (Prometheus JMX Exporter)
+    metricsConfig:
+      type: jmxPrometheusExporter
+      valueFrom:
+        configMapKeyRef:
+          name: kafka-metrics
+          key: kafka-metrics-config.yml
+  
+  # ZooKeeper ensemble
+  zookeeper:
+    replicas: 3
+    
+    storage:
+      type: ephemeral
+      # For production:
+      # type: persistent-claim
+      # size: 10Gi
+    
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+    
+    jvmOptions:
+      -Xms: 512m
+      -Xmx: 512m
+    
+    metricsConfig:
+      type: jmxPrometheusExporter
+      valueFrom:
+        configMapKeyRef:
+          name: kafka-metrics
+          key: zookeeper-metrics-config.yml
+  
+  # Entity Operator (Topic and User operators)
+  entityOperator:
+    topicOperator:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 256Mi
+    
+    userOperator:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 256Mi
+
+---
+# ConfigMap for Kafka metrics (Prometheus JMX Exporter)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-metrics
+  namespace: kafka
+  labels:
+    app: strimzi
+data:
+  kafka-metrics-config.yml: |
+    lowercaseOutputName: true
+    rules:
+      # Broker metrics
+      - pattern: kafka.server<type=(.+), name=(.+), clientId=(.+), topic=(.+), partition=(.*)><>Value
+        name: kafka_server_$1_$2
+        type: GAUGE
+        labels:
+          clientId: "$3"
+          topic: "$4"
+          partition: "$5"
+      - pattern: kafka.server<type=(.+), name=(.+), clientId=(.+), brokerHost=(.+), brokerPort=(.+)><>Value
+        name: kafka_server_$1_$2
+        type: GAUGE
+        labels:
+          clientId: "$3"
+          broker: "$4:$5"
+      - pattern: kafka.server<type=(.+), name=(.+)><>Value
+        name: kafka_server_$1_$2
+        type: GAUGE
+      
+      # Network metrics
+      - pattern: kafka.network<type=RequestMetrics, name=RequestsPerSec, request=(.+)><>Count
+        name: kafka_network_requestspersec
+        type: COUNTER
+        labels:
+          request: "$1"
+      
+      # Log metrics
+      - pattern: kafka.log<type=LogFlushStats, name=LogFlushRateAndTimeMs><>Count
+        name: kafka_log_flushes_total
+        type: COUNTER
+      
+  zookeeper-metrics-config.yml: |
+    lowercaseOutputName: true
+    rules:
+      - pattern: "org.apache.ZooKeeperService<name0=(.+)><>(\\w+)"
+        name: "zookeeper_$2"
+        type: GAUGE

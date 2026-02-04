@@ -1,0 +1,27 @@
+# Strimzi Kafka Operator Helm Values
+# Used with: helm install strimzi-kafka-operator strimzi/strimzi-kafka-operator -f strimzi-operator.yaml
+
+# Watch only kafka namespace (not cluster-wide)
+watchNamespaces:
+  - kafka
+
+# Resource limits for operator
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# Enable feature gates
+featureGates: ""
+
+# Log level
+logLevel: INFO
+
+# Image pull policy
+imagePullPolicy: IfNotPresent
+
+# Generate network policies (optional, for security)
+generateNetworkPolicy: false
