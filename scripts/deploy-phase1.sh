@@ -16,11 +16,16 @@ echo -e "\n${BLUE}1. Deploying Kafka (Strimzi)${NC}"
 helm repo add strimzi https://strimzi.io/charts/ || true
 helm repo update
 
-helm install strimzi-kafka-operator strimzi/strimzi-kafka-operator \
-  --namespace kafka \
-  --create-namespace \
-  --values infra/kafka/strimzi-operator.yaml \
-  --wait
+# Check if Strimzi is already installed
+if helm list -n kafka | grep -q strimzi-kafka-operator; then
+  echo "Strimzi operator already installed, skipping..."
+else
+  helm install strimzi-kafka-operator strimzi/strimzi-kafka-operator \
+    --namespace kafka \
+    --create-namespace \
+    --values infra/kafka/strimzi-operator.yaml \
+    --wait
+fi
 
 echo "Waiting for Strimzi operator..."
 kubectl wait --for=condition=ready pod -l name=strimzi-cluster-operator -n kafka --timeout=300s
