@@ -1,0 +1,45 @@
+customers:
+  - customer_id: acme-manufacturing
+    facilities:
+      - facility_id: fab-west
+        timezone: America/Los_Angeles
+        devices:
+          - type: cnc_machine
+            count: 5
+            model: haas-vf2
+          - type: conveyor
+            count: 3
+            model: flexlink-xs
+          - type: hvac
+            count: 2
+            model: carrier-30rb
+      
+      - facility_id: fab-east
+        timezone: America/New_York
+        devices:
+          - type: cnc_machine
+            count: 3
+            model: haas-vf2
+          - type: conveyor
+            count: 2
+            model: flexlink-xs
+  
+  - customer_id: globex-corp
+    facilities:
+      - facility_id: plant-01
+        timezone: Europe/London
+        devices:
+          - type: cnc_machine
+            count: 2
+            model: dmg-mori-ntx
+          - type: hvac
+            count: 1
+            model: carrier-30rb
+
+# Simulator settings
+simulator:
+  telemetry_interval_seconds: 60
+  heartbeat_interval_seconds: 60
+  event_probability: 0.05  # 5% chance of event per telemetry cycle
+  kafka_bootstrap_servers: iot-ops-kafka-kafka-bootstrap.kafka.svc.cluster.local:9092
+  metrics_port: 8000
