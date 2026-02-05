@@ -172,8 +172,16 @@ airflowLocalSettings: |
   import os
   
 # Extra volumes and volume mounts
-extraVolumes: []
-extraVolumeMounts: []
+extraVolumes:
+  - name: dag-files
+    configMap:
+      name: airflow-dags
+      defaultMode: 0755
+
+extraVolumeMounts:
+  - name: dag-files
+    mountPath: /opt/airflow/dags
+    readOnly: true
 
 # Network policy
 networkPolicies:
