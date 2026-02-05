@@ -1,0 +1,10 @@
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+llama-cpp-python==0.2.55
+pydantic==2.6.0
+python-dotenv==1.0.0
+
+# RAG dependencies (should already be installed)
+sentence-transformers>=2.3.1
+psycopg2-binary>=2.9.9
+langchain>=0.1.0
