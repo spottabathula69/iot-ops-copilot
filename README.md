@@ -141,10 +141,10 @@ Open browser to:
 | **Phase 0** | Skeleton + CI + GitOps Bootstrap | ✅ Complete | Repo structure, ADRs, runbooks, kind cluster |
 | **Phase 1** | Kafka Ingestion MVP | ✅ Complete | Strimzi Kafka, IoT simulator (4 device types), Postgres+MinIO consumers, Kafka UI |
 | **Phase 2** | Airflow Orchestration | ✅ Complete | Airflow 2.8.3 on K8s, Bronze→Silver→Gold DAGs, data transformations |
-| **Phase 3** | RAG Ingestion | ✅ 90% Complete | pgvector, local embeddings (sentence-transformers), document chunking, similarity search |
-| **Phase 4** | RAG Quality (Hybrid + Citations) | ⏳ Next | BM25+vector hybrid, reranking, citations |
-| **Phase 5** | Copilot Service | ⏳ Pending | LLM integration (local Llama), FastAPI, tool calling |
-| **Phase 6** | Observability + SLOs | ⏳ Pending | Prometheus, Grafana, custom metrics, error budgets |
+| **Phase 3** | RAG Ingestion | 100% | ✅ Complete | [apps/rag/](apps/rag/) |
+| **Phase 4** | RAG Quality | 90% | ✅ Complete | [Hybrid Search](apps/rag/HYBRID_README.md) |
+| **Phase 5** | Copilot Service | 60% | 🚧 In Progress | [apps/copilot-api/](apps/copilot-api/) |
+| **Phase 6** | Observability | 0% | 📝 Planned | Prometheus, Grafana, custom metrics, error budgets |
 | **Phase 7** | Scale Story (Multi-tenant) | ⏳ Pending | Tenant isolation, quotas, load testing |
 | **Phase 8** | Security & Enterprise Polish | ⏳ Pending | AuthN/AuthZ, secrets, audit logs |
 
