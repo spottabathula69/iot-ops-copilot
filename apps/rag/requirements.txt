@@ -1,7 +1,9 @@
 openai==1.12.0
+sentence-transformers==2.3.1
 langchain==0.1.0
 langchain-text-splitters==0.0.1
 psycopg2-binary==2.9.9
 pypdf==4.0.0
 python-magic==0.4.27
 pyyaml==6.0
+numpy==1.24.3

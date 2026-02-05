@@ -20,17 +20,19 @@ from rag.embedder import DocumentEmbedder
 class DocumentIngester:
     """Ingest documents into pgvector database."""
     
-    def __init__(self, db_conn_string: str, openai_api_key: str = None):
+    def __init__(self, db_conn_string: str, embedding_model: str = 'local', api_key: str = None):
         """
         Initialize ingester.
         
         Args:
             db_conn_string: PostgreSQL connection string
-            openai_api_key: OpenAI API key (or set OPENAI_API_KEY env var)
+            embedding_model: 'local' (default) or 'openai'
+            api_key: OpenAI API key (only needed for model='openai')
         """
         self.conn = psycopg2.connect(db_conn_string)
         self.chunker = DocumentChunker(chunk_size=512, chunk_overlap=50)
-        self.embedder = DocumentEmbedder(api_key=openai_api_key)
+        self.embedder = DocumentEmbedder(model=embedding_model, api_key=api_key)
+        self.embedding_model = self.embedder.get_model_name()
     
     def ingest_document(self, file_path: str, metadata: Dict) -> int:
         """
@@ -64,7 +66,7 @@ class DocumentIngester:
         print(f"Created {len(chunks)} chunks")
         
         # Generate embeddings
-        print(f"Generating embeddings with OpenAI...")
+        print(f"Generating embeddings with {self.embedder.model_type} model ({self.embedding_model})...")
         chunk_texts = [chunk['content'] for chunk in chunks]
         embeddings = self.embedder.embed_chunks(chunk_texts)
         print(f"Generated {len(embeddings)} embeddings")
@@ -116,7 +118,7 @@ class DocumentIngester:
                 metadata.get('version', '1.0'),
                 chunk_count,
                 total_size,
-                'text-embedding-3-small',
+                self.embedding_model,
                 metadata.get('last_updated', datetime.utcnow())
             ))
         self.conn.commit()
@@ -246,6 +248,8 @@ def main():
                        help='Document type')
     parser.add_argument('--tenant-id', required=True, help='Customer/tenant ID')
     parser.add_argument('--version', default='1.0', help='Document version')
+    parser.add_argument('--model', default='local', choices=['local', 'openai'],
+                       help='Embedding model: local (sentence-transformers) or openai (default: local)')
     parser.add_argument('--db-host', default='localhost', help='Database host')
     parser.add_argument('--db-port', default='5432', help='Database port')
     parser.add_argument('--db-name', default='iot_ops', help='Database name')
@@ -258,8 +262,8 @@ def main():
     db_conn = f"host={args.db_host} port={args.db_port} dbname={args.db_name} " \
               f"user={args.db_user} password={args.db_password}"
     
-    # Create ingester
-    ingester = DocumentIngester(db_conn)
+    # Create ingester with configured model
+    ingester = DocumentIngester(db_conn, embedding_model=args.model)
     
     try:
         # Ingest document

@@ -18,7 +18,8 @@ def main():
     # Connect to database (port-forward to localhost:5432)
     db_conn = "host=localhost port=5432 dbname=iot_ops user=postgres password=postgres"
     
-    ingester = DocumentIngester(db_conn)
+    # Use local embeddings (no API key needed!)
+    ingester = DocumentIngester(db_conn, embedding_model='local')
     
     try:
         # Test queries

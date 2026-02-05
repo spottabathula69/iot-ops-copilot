@@ -2,6 +2,16 @@
 
 Python services for document chunking, embedding generation, and vector storage.
 
+## Embedding Models
+
+**Default**: Local sentence-transformers (no API key needed!)
+**Optional**: OpenAI API (better quality, small cost)
+
+| Model | Dimensions | Cost | Quality | Speed | API Key? |
+|-------|------------|------|---------|-------|----------|
+| **local** (default) | 384 | Free | Very Good | 50ms | No |
+| **openai** | 1536 | $0.01/doc | Excellent | 200ms | Yes |
+
 ## Components
 
 ### 1. Document Chunker (`chunker.py`)
@@ -12,14 +22,17 @@ Splits documents into semantic chunks using LangChain.
 - Generates unique document IDs (SHA256 hash)
 - Preserves metadata (title, doc_type, tenant_id, version)
 
-### 2. OpenAI Embedder (`embedder.py`)
-Generates vector embeddings using OpenAI API.
+### 2. Configurable Embedder (`embedder.py`)
+Generates vector embeddings using local or OpenAI models.
 
-**Model**: `text-embedding-3-small` (1536 dimensions)
+**Supported Models**:
+- `local`: sentence-transformers/all-MiniLM-L6-v2 (384 dims, **default**)
+- `openai`: text-embedding-3-small (1536 dims, requires API key)
 
 **Features**:
-- Batch processing (100 chunks per API call)
-- Rate limiting (0.1s delay between batches)
+- Automatic model switching based on config
+- Batch processing (optimized per model)
+- Progress bars for local model
 - Query embedding for similarity search
 
 ### 3. Document Ingester (`ingest.py`)
@@ -35,22 +48,39 @@ End-to-end ingestion pipeline.
 
 ## Usage
 
-### Ingest a Document
+### Ingest a Document (Local Model - Default)
 
 ```bash
+# Port-forward Postgres
+kubectl port-forward -n postgres svc/postgres 5432:5432 &
+
+# Install dependencies
+pip install -r apps/rag/requirements.txt
+
+# Ingest with LOCAL embeddings (no API key needed!)
+python apps/rag/ingest.py \
+  --file docs/manuals/haas-vf2-cnc-manual.md \
+  --title "Haas VF-2 CNC Machine Manual" \
+  --doc-type manual \
+  --tenant-id acme-manufacturing \
+  --version "2.0"
+```
+
+### Ingest with OpenAI (Optional)
+
+```bash
+# Set API key
+export OPENAI_API_KEY=sk-your-key-here
+
+# Use --model=openai flag
 python apps/rag/ingest.py \
   --file docs/manuals/haas-vf2-cnc-manual.md \
   --title "Haas VF-2 CNC Machine Manual" \
   --doc-type manual \
   --tenant-id acme-manufacturing \
   --version "2.0" \
-  --db-host localhost \
-  --db-port 5432
+  --model openai  # ← OpenAI embeddings
 ```
-
-**Prerequisites**:
-- Port-forward Postgres: `kubectl port-forward -n postgres svc/postgres 5432:5432`
-- Set OpenAI API key: `export OPENAI_API_KEY=sk-...`
 
 ### Test Similarity Search
 
@@ -78,8 +108,8 @@ python apps/rag/test_search.py
 | chunk_index | INTEGER | Chunk position in document |
 | doc_type | VARCHAR(50) | `manual`, `runbook`, `kb_article`, `ADR` |
 | title | TEXT | Document title |
-| content | TEXT | Chunk text content |
-| embedding | vector(1536) | OpenAI embedding |
+| chunk_size | INTEGER | Chunk size in characters |
+| embedding | vector(384) | Embedding vector (384 for local, 1536 for openai) |
 
 **Indexes**:
 - HNSW index on `embedding` (fast cosine similarity)
@@ -95,24 +125,34 @@ Metadata and deduplication tracking.
 | chunk_count | INTEGER | Number of chunks |
 | embedding_model | VARCHAR(100) | Model used (`text-embedding-3-small`) |
 
-## Cost Estimate
+## Cost Comparison
 
-**OpenAI Pricing**: $0.02 per 1M tokens
+### Local Model (Default)
+**Cost**: $0 (completely free)
+**Setup**: Just `pip install sentence-transformers`
+**Best for**: Privacy-sensitive data, air-gapped environments, cost optimization
+
+### OpenAI Model (Optional)
+**Pricing**: $0.02 per 1M tokens
 
 **Example** (100 device manuals):
 - 100 manuals × 50 pages × 500 tokens/page = 2.5M tokens
 - **One-time ingestion**: $0.05
 - **Monthly updates** (10 docs): $0.005/month
 
+**Best for**: Maximum retrieval quality, production applications
+
 ## Dependencies
 
 ```
-openai==1.12.0
+openai==1.12.0                # For OpenAI embeddings (optional)
+sentence-transformers==2.3.1  # For local embeddings (default)
 langchain==0.1.0
 psycopg2-binary==2.9.9
-pypdf==4.0.0         # For PDF parsing (future)
-python-magic==0.4.27  # For file type detection
+pypdf==4.0.0                  # For PDF parsing (future)
+python-magic==0.4.27          # For file type detection
 pyyaml==6.0
+numpy==1.24.3
 ```
 
 ## Development
@@ -124,6 +164,20 @@ pyyaml==6.0
 parser.add_argument('--doc-type', choices=[
     'manual', 'runbook', 'kb_article', 'ADR', 'sop'  # Add new type
 ])
+```
+
+### Switch Embedding Models
+
+```python
+from rag.embedder import DocumentEmbedder
+
+# Local model (default)
+embedder_local = DocumentEmbedder(model='local')
+print(f"Dims: {embedder_local.get_embedding_dimension()}")  # 384
+
+# OpenAI model
+embedder_openai = DocumentEmbedder(model='openai', api_key='sk-...')
+print(f"Dims: {embedder_openai.get_embedding_dimension()}")  # 1536
 ```
 
 ### Customize Chunking
@@ -151,7 +205,17 @@ results = ingester.search_similar(
 
 ## Troubleshooting
 
-### OpenAI API Key Not Found
+### Model Loading Issues
+
+**Local model download**:
+```bash
+# sentence-transformers will auto-download on first use (~80MB)
+# If behind proxy, set:
+export HTTP_PROXY=http://proxy:8080
+export HTTPS_PROXY=http://proxy:8080
+```
+
+**OpenAI API Key Not Found** (only if using --model=openai):
 ```bash
 export OPENAI_API_KEY=sk-your-key-here
 ```
