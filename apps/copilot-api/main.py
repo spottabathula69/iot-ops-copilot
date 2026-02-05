@@ -12,13 +12,19 @@ import time
 import sys
 import os
 
-# Add parent directories to path for imports
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+# Add project root to path
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, project_root)
 
-from rag.embedder import DocumentEmbedder
-from rag.hybrid_search import HybridSearchEngine
-from rag.reranker import DocumentReranker
-from llm import LlamaModel, MockLlamaModel, PromptTemplate
+from apps.rag.embedder import DocumentEmbedder
+from apps.rag.hybrid_search import HybridSearchEngine
+from apps.rag.reranker import DocumentReranker
+
+# Import from same directory  
+import llm
+LlamaModel = llm.LlamaModel
+MockLlamaModel = llm.MockLlamaModel
+PromptTemplate = llm.PromptTemplate
 
 
 # Pydantic models
@@ -237,4 +243,4 @@ async def ask(request: AskRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=8001, log_level="info")
