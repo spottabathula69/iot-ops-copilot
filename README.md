@@ -50,10 +50,10 @@ The **IoT Ops Copilot** is an end-to-end platform that ingests IoT device teleme
 | **Container Orchestration** | Kubernetes (kind/minikube → EKS/GKE) | Service deployment & management |
 | **Event Streaming** | Apache Kafka (Strimzi operator) | Real-time telemetry ingestion |
 | **Workflow Orchestration** | Apache Airflow (on K8s) | Data pipeline scheduling |
-| **Vector Database** | pgvector / Qdrant / Milvus | RAG knowledge store |
-| **Object Storage** | MinIO (local) / S3 | Bronze layer (raw data) |
+| **Vector Database** | pgvector (Postgres extension) | RAG knowledge store |
+| **Embedding Model** | sentence-transformers (local) / OpenAI | Document vectorization |
 | **Database** | PostgreSQL | Silver/gold layers (curated data) |
-| **LLM** | OpenAI / Anthropic / Local | Copilot intelligence |
+| **LLM** | Local Llama (planned) / OpenAI / Anthropic | Copilot intelligence |
 | **Infrastructure as Code** | Terraform | Cluster & resource provisioning |
 | **GitOps** | Argo CD | Declarative deployment |
 | **Observability** | Prometheus + Grafana | Metrics, dashboards, alerts |
@@ -136,17 +136,17 @@ Open browser to:
 
 ## 🎯 Implementation Phases
 
-| Phase | Focus | Status |
-|-------|-------|--------|
-| **Phase 0** | Skeleton + CI + GitOps Bootstrap | 🚧 In Progress |
-| **Phase 1** | Kafka Ingestion MVP | ⏳ Pending |
-| **Phase 2** | Airflow Orchestration | ⏳ Pending |
-| **Phase 3** | RAG Ingestion | ⏳ Pending |
-| **Phase 4** | RAG Quality (Hybrid + Citations) | ⏳ Pending |
-| **Phase 5** | Copilot Service | ⏳ Pending |
-| **Phase 6** | Observability + SLOs | ⏳ Pending |
-| **Phase 7** | Scale Story (Multi-tenant) | ⏳ Pending |
-| **Phase 8** | Security & Enterprise Polish | ⏳ Pending |
+| Phase | Focus | Status | Highlights |
+|-------|-------|--------|------------|
+| **Phase 0** | Skeleton + CI + GitOps Bootstrap | ✅ Complete | Repo structure, ADRs, runbooks, kind cluster |
+| **Phase 1** | Kafka Ingestion MVP | ✅ Complete | Strimzi Kafka, IoT simulator (4 device types), Postgres+MinIO consumers, Kafka UI |
+| **Phase 2** | Airflow Orchestration | ✅ Complete | Airflow 2.8.3 on K8s, Bronze→Silver→Gold DAGs, data transformations |
+| **Phase 3** | RAG Ingestion | ✅ 90% Complete | pgvector, local embeddings (sentence-transformers), document chunking, similarity search |
+| **Phase 4** | RAG Quality (Hybrid + Citations) | ⏳ Next | BM25+vector hybrid, reranking, citations |
+| **Phase 5** | Copilot Service | ⏳ Pending | LLM integration (local Llama), FastAPI, tool calling |
+| **Phase 6** | Observability + SLOs | ⏳ Pending | Prometheus, Grafana, custom metrics, error budgets |
+| **Phase 7** | Scale Story (Multi-tenant) | ⏳ Pending | Tenant isolation, quotas, load testing |
+| **Phase 8** | Security & Enterprise Polish | ⏳ Pending | AuthN/AuthZ, secrets, audit logs |
 
 ## 🔍 Key Features
 
@@ -216,6 +216,20 @@ This is a portfolio project designed to demonstrate:
 
 ---
 
-**Status**: 🚧 Phase 0 - Bootstrap in progress
+**Status**: ✅ **Phase 3 - RAG Ingestion (90% Complete)**
+
+**Latest Updates** (2026-02-04):
+- ✅ Deployed pgvector extension (v0.8.1) on Postgres
+- ✅ Built configurable embedding service (local sentence-transformers default, OpenAI optional)
+- ✅ Created document chunking pipeline (LangChain, 512-char chunks)
+- ✅ Implemented vector similarity search with tenant filtering
+- ✅ Sample CNC manual ready for ingestion (Haas VF-2)
+- 🚧 Next: Test ingestion, create Airflow DAG, move to Phase 4 (RAG quality)
+
+**Quick Stats**:
+- 🔧 **4 Device Types**: CNC machines, Robotic arms, Conveyor belts, 3D printers
+- 📊 **2,600+ Telemetry Records**: Bronze (MinIO) → Silver (Postgres) → Gold (aggregations)
+- 📚 **Vector DB**: pgvector with 384-dim embeddings, HNSW index
+- 🤖 **Zero External Dependencies**: Local embeddings (no API keys needed!)
 
 For questions or feedback, please open an issue or reach out via email.
