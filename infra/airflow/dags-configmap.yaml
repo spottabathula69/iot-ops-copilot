@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: airflow-dags
+  namespace: airflow
+data:
+  bronze_to_silver.py: |
+{{ .Files.Get "apps/airflow/dags/bronze_to_silver.py" | indent 4 }}
+  silver_to_gold.py: |
+{{ .Files.Get "apps/airflow/dags/silver_to_gold.py" | indent 4 }}
