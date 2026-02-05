@@ -1,0 +1,83 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pgvector-init
+  namespace: postgres
+data:
+  init-pgvector.sql: |
+    -- Enable pgvector extension for RAG document embeddings
+    CREATE EXTENSION IF NOT EXISTS vector;
+    
+    -- Verify extension
+    SELECT extname, extversion FROM pg_extension WHERE extname = 'vector';
+    
+    -- Document embeddings table
+    CREATE TABLE IF NOT EXISTS document_embeddings (
+        id BIGSERIAL PRIMARY KEY,
+        document_id VARCHAR(255) NOT NULL,
+        tenant_id VARCHAR(100) NOT NULL,  -- Multi-tenancy support (customer_id)
+        chunk_index INTEGER NOT NULL,
+        
+        -- Document metadata
+        doc_type VARCHAR(50) NOT NULL,  -- 'manual', 'runbook', 'kb_article', 'ADR'
+        title TEXT NOT NULL,
+        source_path TEXT NOT NULL,
+        version VARCHAR(50),
+        last_updated TIMESTAMPTZ NOT NULL,
+        
+        -- Chunk content
+        content TEXT NOT NULL,
+        chunk_size INTEGER NOT NULL,
+        
+        -- Vector embedding (1536 dimensions for OpenAI text-embedding-3-small)
+        embedding vector(1536) NOT NULL,
+        
+        -- Timestamps
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        
+        UNIQUE (document_id, chunk_index)
+    );
+    
+    -- HNSW index for fast vector similarity search (cosine distance)
+    CREATE INDEX IF NOT EXISTS idx_embeddings_vector 
+    ON document_embeddings 
+    USING hnsw (embedding vector_cosine_ops)
+    WITH (m = 16, ef_construction = 64);
+    
+    -- Indexes for filtering
+    CREATE INDEX IF NOT EXISTS idx_embeddings_tenant ON document_embeddings(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_embeddings_doc_type ON document_embeddings(doc_type);
+    CREATE INDEX IF NOT EXISTS idx_embeddings_updated ON document_embeddings(last_updated DESC);
+    CREATE INDEX IF NOT EXISTS idx_embeddings_document ON document_embeddings(document_id);
+    
+    -- Document metadata table
+    CREATE TABLE IF NOT EXISTS documents (
+        id BIGSERIAL PRIMARY KEY,
+        document_id VARCHAR(255) UNIQUE NOT NULL,
+        tenant_id VARCHAR(100) NOT NULL,
+        doc_type VARCHAR(50) NOT NULL,
+        title TEXT NOT NULL,
+        source_path TEXT NOT NULL,
+        file_hash VARCHAR(64) NOT NULL,  -- SHA256 for deduplication
+        version VARCHAR(50),
+        chunk_count INTEGER NOT NULL,
+        total_size_bytes INTEGER,
+        embedding_model VARCHAR(100) DEFAULT 'text-embedding-3-small',
+        last_updated TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    
+    CREATE INDEX IF NOT EXISTS idx_documents_tenant ON documents(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_documents_hash ON documents(file_hash);
+    
+    -- Grant permissions
+    GRANT ALL PRIVILEGES ON TABLE document_embeddings TO postgres;
+    GRANT ALL PRIVILEGES ON TABLE documents TO postgres;
+    GRANT USAGE, SELECT ON SEQUENCE document_embeddings_id_seq TO postgres;
+    GRANT USAGE, SELECT ON SEQUENCE documents_id_seq TO postgres;
+    
+    -- Add comments
+    COMMENT ON TABLE document_embeddings IS 'RAG document chunks with vector embeddings for similarity search';
+    COMMENT ON TABLE documents IS 'Document metadata and ingestion tracking';
+    COMMENT ON COLUMN document_embeddings.embedding IS 'OpenAI text-embedding-3-small (1536 dimensions)';
