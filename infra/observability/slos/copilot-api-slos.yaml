@@ -1,0 +1,122 @@
+# Copilot API Service Level Objectives (SLOs)
+#
+# Defines target service levels and error budgets for the copilot API.
+# SLOs are measured over a 30-day rolling window.
+
+---
+# SLO 1: Availability
+# Target: 99.9% uptime (max 43.2 minutes downtime per 30 days)
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: copilot-slo-availability
+  namespace: monitoring
+  labels:
+    role: slo
+    service: copilot-api
+spec:
+  groups:
+    - name: copilot_availability_slo
+      interval: 30s
+      rules:
+        # Record rule: Calculate availability over 30-day window
+        - record: copilot:availability:30d
+          expr: |
+            100 * (1 - (
+              sum(rate(copilot_requests_total{status_code=~"5.."}[30d]))
+              /
+              sum(rate(copilot_requests_total[30d]))
+            ))
+        
+        # Record rule: Error budget consumed (%)
+        - record: copilot:availability:error_budget_consumed
+          expr: |
+            100 * (1 - (copilot:availability:30d / 99.9))
+
+---
+# SLO 2: Latency
+# Target: 95% of requests complete in < 1 second (p95 latency)
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: copilot-slo-latency
+  namespace: monitoring
+  labels:
+    role: slo
+    service: copilot-api
+spec:
+  groups:
+    - name: copilot_latency_slo
+      interval: 30s
+      rules:
+        # Record rule: Calculate p95 latency over 30-day window
+        - record: copilot:latency:p95:30d
+          expr: |
+            histogram_quantile(0.95,
+              rate(copilot_request_duration_seconds_bucket[30d])
+            )
+        
+        # Record rule: Percentage of requests meeting SLO
+        - record: copilot:latency:slo_compliance
+          expr: |
+            100 * (
+              sum(rate(copilot_request_duration_seconds_bucket{le="1.0"}[30d]))
+              /
+              sum(rate(copilot_request_duration_seconds_count[30d]))
+            )
+        
+        # Record rule: Error budget consumed (%)
+        - record: copilot:latency:error_budget_consumed
+          expr: |
+            100 * (1 - (copilot:latency:slo_compliance / 95))
+
+---
+# SLO 3: Quality
+# Target: RAG precision > 90% (average relevance score)
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: copilot-slo-quality
+  namespace: monitoring
+  labels:
+    role: slo
+    service: copilot-api
+spec:
+  groups:
+    - name: copilot_quality_slo
+      interval: 30s
+      rules:
+        # Record rule: Average RAG precision over 30-day window
+        - record: copilot:quality:rag_precision:30d
+          expr: |
+            avg_over_time(copilot_rag_precision[30d])
+        
+        # Record rule: Error budget consumed (%)
+        - record: copilot:quality:error_budget_consumed
+          expr: |
+            100 * (1 - (copilot:quality:rag_precision:30d / 0.90))
+
+---
+# SLO 4: Cache Efficiency (Bonus)
+# Target: Cache hit ratio > 60%
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: copilot-slo-cache
+  namespace: monitoring
+  labels:
+    role: slo
+    service: copilot-api
+spec:
+  groups:
+    - name: copilot_cache_slo
+      interval: 30s
+      rules:
+        # Record rule: Average cache hit ratio over 7 days
+        - record: copilot:cache:hit_ratio:7d
+          expr: |
+            avg_over_time(copilot_cache_hit_ratio[7d])
