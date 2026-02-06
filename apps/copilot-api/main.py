@@ -26,6 +26,8 @@ from apps.rag.reranker import DocumentReranker
 import llm_vllm as llm_module
 import guardrails
 import cache as cache_module
+import metrics
+import tracing
 
 VLLMModel = llm_module.VLLMModel
 MockVLLMModel = llm_module.MockVLLMModel
@@ -146,6 +148,9 @@ class AppState:
 
 state = AppState()
 
+# Global tracer for distributed tracing
+tracer = None
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -169,6 +174,12 @@ async def startup_event():
     # Initialize cache
     print("\n💾 Initializing response cache...")
     state.cache = ResponseCache(ttl_seconds=3600)  # 1 hour TTL
+    
+    # Initialize observability
+    print("\n📊 Initializing observability...")
+    metrics.init_metrics(app)
+    global tracer
+    tracer = tracing.init_tracing(app, service_name="copilot-api")
     
     # Initialize LLM
     print("\n🦙 Loading LLM...")

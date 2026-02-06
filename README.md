@@ -48,16 +48,18 @@ The **IoT Ops Copilot** is an end-to-end platform that ingests IoT device teleme
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
 | **Container Orchestration** | Kubernetes (kind/minikube → EKS/GKE) | Service deployment & management |
-| **Event Streaming** | Apache Kafka (Strimzi operator) | Real-time telemetry ingestion |
-| **Workflow Orchestration** | Apache Airflow (on K8s) | Data pipeline scheduling |
-| **Vector Database** | pgvector (Postgres extension) | RAG knowledge store |
-| **Embedding Model** | sentence-transformers (local) / OpenAI | Document vectorization |
-| **Database** | PostgreSQL | Silver/gold layers (curated data) |
-| **LLM** | Local Llama (planned) / OpenAI / Anthropic | Copilot intelligence |
-| **Infrastructure as Code** | Terraform | Cluster & resource provisioning |
-| **GitOps** | Argo CD | Declarative deployment |
-| **Observability** | Prometheus + Grafana | Metrics, dashboards, alerts |
-| **Load Testing** | k6 / hey | Performance benchmarking |
+| **Streaming** | Apache Kafka (Strimzi operator) | Event ingestion & processing |
+| **Data Orchestration** | Apache Airflow | ETL pipeline orchestration (bronze/silver/gold) |
+| **Storage** | PostgreSQL + MinIO/S3 | Structured data + object storage |
+| **RAG** | Hybrid search (BM25 + Vector), Cross-encoder reranking | Document retrieval & relevance |
+| **Embeddings** | sentence-transformers (all-MiniLM-L6-v2) | Text embeddings for semantic search |
+| **LLM** | vLLM + TinyLlama/Llama-2 | GPU-accelerated local inference (0.6s latency) |
+| **API** | FastAPI + Pydantic | Production-ready async REST API |
+| **Observability** | **Prometheus + Grafana + Jaeger + OpenTelemetry** | Metrics, dashboards, distributed tracing, SLOs |
+| **GitOps** | Argo CD + Terraform | Declarative infrastructure & deployments |
+| **CI/CD** | GitHub Actions | Automated testing & deployment |
+
+**Cost**: $0 - All inference runs locally on GPU, no cloud API calls!
 
 ## 📁 Repository Structure
 

@@ -1,0 +1,34 @@
+# ServiceMonitor for Copilot API
+#
+# Tells Prometheus to scrape metrics from copilot API /metrics endpoint.
+# Requires Prometheus Operator to be installed.
+#
+# The copilot API exposes metrics on port 8001 at /metrics path:
+# - RED metrics (Rate, Errors, Duration)
+# - Quality metrics (RAG precision, cache hit ratio)
+# - Resource metrics (GPU utilization, VRAM usage)
+
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: copilot-api
+  namespace: monitoring
+  labels:
+    app: copilot-api
+    release: prometheus
+spec:
+  # Select services to scrape
+  selector:
+    matchLabels:
+      app: copilot-api
+  # Look for services in default namespace
+  namespaceSelector:
+    matchNames:
+      - default
+  # Scrape configuration
+  endpoints:
+    - port: http  # Named port from copilot-api service
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
+      scheme: http
