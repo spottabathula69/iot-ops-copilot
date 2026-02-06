@@ -72,3 +72,12 @@ yarn.lock
 tmp/
 temp/
 *.tmp
+
+# LLM models (large files, should not be committed)
+models/
+*.gguf
+*.bin
+*.safetensors
+
+# Copilot API cache
+apps/copilot-api/__pycache__/

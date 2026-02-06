@@ -17,8 +17,9 @@ class LlamaModel:
     
     def __init__(self, 
                  model_path: str = None,
-                 n_ctx: int = 4096,
+                 n_ctx: int = 8192,  # Increased from 4096 for better GPU utilization
                  n_threads: int = 8,
+                 n_gpu_layers: int = None,
                  temperature: float = 0.7,
                  max_tokens: int = 256):
         """
@@ -28,6 +29,7 @@ class LlamaModel:
             model_path: Path to GGUF model file
             n_ctx: Context window size
             n_threads: Number of CPU threads
+            n_gpu_layers: Number of layers to offload to GPU (None=auto-detect, 0=CPU-only)
             temperature: Sampling temperature (0-1)
             max_tokens: Max tokens to generate
         """
@@ -49,15 +51,32 @@ class LlamaModel:
         if not os.path.exists(self.model_path):
             raise FileNotFoundError(f"Model not found: {self.model_path}")
         
+        # Auto-detect GPU if not specified
+        if n_gpu_layers is None:
+            try:
+                import subprocess
+                result = subprocess.run(['nvidia-smi'], capture_output=True, text=True)
+                if result.returncode == 0:
+                    # Use -1 to offload ALL layers to GPU for maximum performance
+                    n_gpu_layers = -1
+                    print(f"🎮 GPU detected - enabling full acceleration (all layers on GPU)")
+                else:
+                    n_gpu_layers = 0
+                    print("💻 No GPU detected - using CPU-only mode")
+            except:
+                n_gpu_layers = 0
+                print("💻 GPU detection failed - using CPU-only mode")
+        
         print(f"Loading Llama model from {self.model_path}...")
         print(f"  Context window: {n_ctx}")
         print(f"  CPU threads: {n_threads}")
+        print(f"  GPU layers: {n_gpu_layers}")
         
         self.llm = Llama(
             model_path=self.model_path,
             n_ctx=n_ctx,
             n_threads=n_threads,
-            n_gpu_layers=0,  # CPU-only
+            n_gpu_layers=n_gpu_layers,
             verbose=False
         )
         

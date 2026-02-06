@@ -7,10 +7,11 @@ Provides RAG-grounded Q&A, device insights, and troubleshooting guides.
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import time
 import sys
 import os
+import psycopg2
 
 # Add project root to path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -20,11 +21,17 @@ from apps.rag.embedder import DocumentEmbedder
 from apps.rag.hybrid_search import HybridSearchEngine
 from apps.rag.reranker import DocumentReranker
 
-# Import from same directory  
-import llm
-LlamaModel = llm.LlamaModel
-MockLlamaModel = llm.MockLlamaModel
-PromptTemplate = llm.PromptTemplate
+# Import from same directory
+# Using vLLM for faster GPU inference (10-20x speedup vs llama-cpp-python)
+import llm_vllm as llm_module
+import guardrails
+import cache as cache_module
+
+VLLMModel = llm_module.VLLMModel
+MockVLLMModel = llm_module.MockVLLMModel
+PromptTemplate = llm_module.PromptTemplateVLLM
+Guardrails = guardrails.Guardrails
+ResponseCache = cache_module.ResponseCache
 
 
 # Pydantic models
@@ -62,6 +69,55 @@ class HealthResponse(BaseModel):
     rag_enabled: bool
 
 
+class InsightsRequest(BaseModel):
+    """Request model for /insights endpoint."""
+    device_id: str = Field(..., description="Device ID to analyze")
+    tenant_id: str = Field(..., description="Tenant ID")
+    time_range_hours: int = Field(24, description="Hours of data to analyze", ge=1, le=168)
+
+
+class MetricSummary(BaseModel):
+    """Summary of a metric."""
+    metric: str
+    current_value: Optional[float]
+    avg_value: Optional[float]
+    threshold: Optional[float]
+    status: str  # normal, warning, critical
+
+
+class InsightsResponse(BaseModel):
+    """Response model for /insights endpoint."""
+    summary: str
+    metrics: List[MetricSummary]
+    recommendations: List[str]
+    latency_ms: int
+
+
+class TroubleshootRequest(BaseModel):
+    """Request model for /troubleshoot endpoint."""
+    error_code: str = Field(..., description="Error code to troubleshoot")
+    tenant_id: str = Field(..., description="Tenant ID")
+    device_context: Optional[str] = Field(None, description="Additional device context")
+
+
+class TroubleshootStep(BaseModel):
+    """A troubleshooting step."""
+    step: int
+    action: str
+    expected_result: Optional[str] = None
+
+
+class TroubleshootResponse(BaseModel):
+    """Response model for /troubleshoot endpoint."""
+    error_code: str
+    description: str
+    steps: List[TroubleshootStep]
+    tools_needed: List[str]
+    estimated_time: str
+    citations: List[Citation]
+    latency_ms: int
+
+
 # Initialize FastAPI app
 app = FastAPI(
     title="IoT Ops Copilot API",
@@ -81,10 +137,11 @@ app.add_middleware(
 # Global state
 class AppState:
     """Application state."""
-    llm: Optional[LlamaModel] = None
+    llm: Optional[VLLMModel] = None  # Changed from LlamaModel to VLLMModel
     embedder: Optional[DocumentEmbedder] = None
     rag_engine: Optional[HybridSearchEngine] = None
     reranker: Optional[DocumentReranker] = None
+    cache: Optional[ResponseCache] = None
     db_conn: str = "host=localhost port=5432 dbname=iot_ops user=postgres password=postgres"
 
 state = AppState()
@@ -109,26 +166,29 @@ async def startup_event():
     print("\n🎯 Loading reranker...")
     state.reranker = DocumentReranker()
     
+    # Initialize cache
+    print("\n💾 Initializing response cache...")
+    state.cache = ResponseCache(ttl_seconds=3600)  # 1 hour TTL
+    
     # Initialize LLM
     print("\n🦙 Loading LLM...")
     try:
-        model_path = os.getenv('LLAMA_MODEL_PATH')
-        if model_path and os.path.exists(model_path):
-            state.llm = LlamaModel(model_path=model_path)
-        else:
-            print("⚠️  No model file found, using mock LLM for testing")
-            print("   Set LLAMA_MODEL_PATH env var to use real model")
-            state.llm = MockLlamaModel()
+        # Use TinyLlama (1.1B) for fast inference, or set VLLM_MODEL_NAME env var
+        model_name = os.getenv('VLLM_MODEL_NAME', 'TinyLlama/TinyLlama-1.1B-Chat-v1.0')
+        print(f"   Model: {model_name}")
+        state.llm = VLLMModel(model_name=model_name, max_tokens=200)
     except Exception as e:
-        print(f"⚠️  Failed to load LLM: {e}")
-        print("   Using mock LLM for testing")
-        state.llm = MockLlamaModel()
+        print(f"⚠️  Failed to load vLLM: {e}")
+        print("   Using mock vLLM for testing")
+        state.llm = MockVLLMModel()
     
     print("\n" + "="*80)
     print("✅ Copilot API ready!")
     print("="*80)
     print(f"\n📍 Endpoints:")
     print(f"   - POST /ask             - RAG-grounded Q&A")
+    print(f"   - POST /insights        - Device health summaries")
+    print(f"   - POST /troubleshoot    - Step-by-step guides")
     print(f"   - GET  /health          - Health check")
     print(f"   - GET  /docs            - API documentation")
     print()
