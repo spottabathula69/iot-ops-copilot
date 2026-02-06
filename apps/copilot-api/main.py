@@ -301,6 +301,213 @@ async def ask(request: AskRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/insights", response_model=InsightsResponse)
+async def insights(request: InsightsRequest):
+    """
+    Get device health insights from telemetry data.
+    
+    Queries telemetry (or generates mock data) and uses LLM for summary.
+    """
+    start_time = time.time()
+    
+    if not state.llm:
+        raise HTTPException(status_code=503, detail="LLM not ready")
+    
+    try:
+        print(f"\n📊 Getting insights for device: {request.device_id}")
+        
+        # Mock telemetry data (replace with real DB query when telemetry table exists)
+        # TODO: Replace with: SELECT metric, value, timestamp FROM telemetry_silver WHERE device_id = ...
+        mock_telemetry = {
+            "temperature": [75.2, 76.1, 77.3, 78.5, 79.2],
+            "vibration": [1.8, 1.9, 2.1, 2.3, 2.5],
+            "pressure": [95.1, 94.8, 94.5, 94.2, 94.0]
+        }
+        
+        # Aggregate metrics
+        metric_summaries = []
+        thresholds = {
+            "temperature": 80.0,
+            "vibration": 2.0,
+            "pressure": 100.0
+        }
+        
+        for metric, values in mock_telemetry.items():
+            current = values[-1] if values else None
+            avg = sum(values) / len(values) if values else None
+            threshold = thresholds.get(metric)
+            
+            status = "normal"
+            if threshold and current:
+                if current > threshold:
+                    status = "critical"
+                elif current > threshold * 0.8:
+                    status = "warning"
+            
+            metric_summaries.append(MetricSummary(
+                metric=metric,
+                current_value=current,
+                avg_value=avg,
+                threshold=threshold,
+                status=status
+            ))
+        
+        # Generate summary with LLM
+        metrics_text = "\n".join([
+            f"- {m.metric}: current={m.current_value:.2f}, avg={m.avg_value:.2f}, threshold={m.threshold}, status={m.status}"
+            for m in metric_summaries
+        ])
+        
+        prompt = f"""<s>[INST] <<SYS>>
+You are an IoT device health analyst. Analyze the telemetry data and provide a brief summary.
+<</SYS>>
+
+Device ID: {request.device_id}
+Time Range: Last {request.time_range_hours} hours
+
+Metrics:
+{metrics_text}
+
+Provide:
+1. A 2-sentence summary of overall device health
+2. List any concerning trends
+
+Summary: [/INST]"""
+        
+        summary = state.llm.generate(prompt, max_tokens=150)
+        
+        # Generate recommendations for abnormal metrics
+        recommendations = []
+        for m in metric_summaries:
+            if m.status == "critical":
+                recommendations.append(f"⚠️  CRITICAL: {m.metric} at {m.current_value:.2f} exceeds threshold {m.threshold} - immediate action required")
+            elif m.status == "warning":
+                recommendations.append(f"⚡ WARNING: {m.metric} at {m.current_value:.2f} approaching threshold {m.threshold} - monitor closely")
+        
+        if not recommendations:
+            recommendations.append("✅ All metrics within normal ranges - no action needed")
+        
+        latency_ms = int((time.time() - start_time) * 1000)
+        print(f"   ✅ Insights generated ({latency_ms}ms)")
+        
+        return InsightsResponse(
+            summary=summary,
+            metrics=metric_summaries,
+            recommendations=recommendations,
+            latency_ms=latency_ms
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"   ❌ Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/troubleshoot", response_model=TroubleshootResponse)
+async def troubleshoot(request: TroubleshootRequest):
+    """
+    Generate step-by-step troubleshooting guide for error code.
+    
+    Uses RAG to find relevant manual sections, then LLM to structure steps.
+    """
+    start_time = time.time()
+    
+    if not state.llm or not state.rag_engine:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    
+    try:
+        print(f"\n🔧 Troubleshooting: {request.error_code}")
+        
+        # Search for error code in manuals
+        search_query = f"error code {request.error_code} troubleshooting"
+        if request.device_context:
+            search_query += f" {request.device_context}"
+        
+        candidates = state.rag_engine.search(
+            query=search_query,
+            tenant_id=request.tenant_id,
+            doc_type="manual",
+            top_k=10
+        )
+        
+        if not candidates:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No documentation found for error code {request.error_code}"
+            )
+        
+        # Rerank to get top 3 most relevant
+        if state.reranker:
+            reranked = state.reranker.rerank(search_query, candidates, top_k=3)
+            relevant_chunks = [result for result, score in reranked]
+        else:
+            relevant_chunks = candidates[:3]
+        
+        # Build context
+        context = "\n\n".join([chunk.content for chunk in relevant_chunks])
+        
+        # Generate structured troubleshooting steps
+        prompt = PromptTemplate.troubleshooting(request.error_code, [context])
+        
+        guide_text = state.llm.generate(prompt, max_tokens=300)
+        
+        # Parse into structured steps (simple line-based parsing)
+        steps = []
+        tools = []
+        estimated_time = "15-30 minutes"
+        
+        # Extract numbered steps from LLM response
+        lines = guide_text.split("\n")
+        step_num = 1
+        for line in lines:
+            line = line.strip()
+            # Match lines starting with number or dash
+            if line and (line[0].isdigit() or line.startswith("-")):
+                action = line.lstrip("0123456789.-) ")
+                if action and len(action) > 10:  # Filter out very short lines
+                    steps.append(TroubleshootStep(
+                        step=step_num,
+                        action=action,
+                        expected_result=None
+                    ))
+                    step_num += 1
+        
+        # Build citations
+        citations = [
+            Citation(
+                title=chunk.title,
+                doc_type=chunk.doc_type,
+                version=chunk.version,
+                chunk_index=chunk.chunk_index,
+                source_path=chunk.source_path,
+                score=chunk.score
+            )
+            for chunk in relevant_chunks
+        ]
+        
+        latency_ms = int((time.time() - start_time) * 1000)
+        print(f"   ✅ Guide generated with {len(steps)} steps ({latency_ms}ms)")
+        
+        return TroubleshootResponse(
+            error_code=request.error_code,
+            description=f"Troubleshooting guide for error {request.error_code}",
+            steps=steps if steps else [
+                TroubleshootStep(step=1, action="Follow manual instructions from citations below", expected_result=None)
+            ],
+            tools_needed=tools,
+            estimated_time=estimated_time,
+            citations=citations,
+            latency_ms=latency_ms
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"   ❌ Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8001, log_level="info")

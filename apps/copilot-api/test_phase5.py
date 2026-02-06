@@ -82,9 +82,12 @@ def test_insights():
         data = response.json()
         print(f"\nSummary: {data['summary'][:150]}...")
         print(f"Metrics analyzed: {len(data['metrics'])}")
-        for metric in data['metrics'][:3]:
+        for metric in data['metrics']:
             print(f"  - {metric['metric']}: {metric['current_value']:.2f} ({metric['status']})")
         print(f"Recommendations: {len(data['recommendations'])}")
+        for rec in data['recommendations'][:2]:
+            print(f"  • {rec[:70]}...")
+        print(f"Latency: {data['latency_ms']}ms")
         return True
     else:
         print(f"Error: {response.text}")
@@ -114,6 +117,7 @@ def test_troubleshoot():
             print(f"  {step['step']}. {step['action'][:60]}...")
         print(f"Citations: {len(data['citations'])}")
         print(f"Estimated time: {data['estimated_time']}")
+        print(f"Latency: {data['latency_ms']}ms")
         return True
     else:
         print(f"Error: {response.text}")
@@ -158,18 +162,9 @@ def main():
     # Guardrails
     results.append(("Guardrails", test_guardrails()))
     
-    # New endpoints (may not be implemented yet)
-    try:
-        results.append(("/insights", test_insights()))
-    except Exception as e:
-        print(f"⚠️  /insights not available: {e}")
-        results.append(("/insights", False))
-    
-    try:
-        results.append(("/troubleshoot", test_troubleshoot()))
-    except Exception as e:
-        print(f"⚠️  /troubleshoot not available: {e}")
-        results.append(("/troubleshoot", False))
+    # New endpoints
+    results.append(("/insights", test_insights()))
+    results.append(("/troubleshoot", test_troubleshoot()))
     
     # Summary
     print("\n" + "="*60)
